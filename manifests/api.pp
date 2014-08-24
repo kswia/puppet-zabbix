@@ -1,5 +1,7 @@
 # == Class: zabbix::api
 #
+# KAMIL
+#
 # Install and manage a zabbix library. It enables you to use zabbix in puppet.
 #
 # === Parameters
@@ -23,14 +25,15 @@
 # * only really tested on some debian flavors
 #
 class zabbix::api (
-  $ensure             = $zabbix::params::api_ensure,
-  $url                = $zabbix::params::api_url,
-  $username           = $zabbix::params::api_username,
-  $password           = $zabbix::params::api_password,
-  $http_username      = $zabbix::params::api_http_username,
-  $http_password      = $zabbix::params::api_http_password,
-  $api_debug          = $zabbix::params::api_debug) inherits zabbix::params {
-  validate_re($ensure, [absent, present])
+  $username   = 'Admin',
+  $password   = 'zabbix',
+  $debug      = 'false',
+  $servername = $::fqdn,
+) {
+
+  include zabbix::params
+
+  $url = "http://${servername}/api_jsonrpc.php"
 
   file { '/etc/puppet/zabbix.api.yaml':
     content => template('zabbix/zabbix.api.yaml.erb'),
@@ -52,7 +55,7 @@ class zabbix::api (
   File['/etc/puppet/zabbix.api.yaml'] -> Zabbix_trigger <| |>
 
   package { 'zabbixapi':
-    ensure   => 'latest',
+    ensure   => 'installed',
     provider => 'gem',
   }
 }

@@ -1,4 +1,4 @@
-# == Define: zabbix::agent::param
+# == Define: zabbix::agent::userparameter
 #
 # Create a userparameter on a zabbix agent. This works in tandem with
 # zabbix::server::item to monitor resources.
@@ -34,24 +34,36 @@
 #
 # * rewrite to $zabbix::params
 #
-define zabbix::agent::param (
-  $ensure   = hiera('agent_param_ensure', present),
-  $key      = hiera('agent_param_key', undef),
-  $command  = hiera('agent_param_command', undef),
-  $path     = hiera('agent_include_path', '/etc/zabbix/zabbix_agentd.d/'),
-  $index    = hiera('agent_param_index', 10),
-  $file     = hiera('agent_param_file', undef),
-  $template = hiera(
-    'agent_param_template',
-    'zabbix/zabbix_agent_userparam.conf.erb'
-  )) {
+define zabbix::agent::userparameter (
+  $ensure   = present,
+  $command  = undef,
+  $key      = undef,
+  $index    = undef,
+  $file     = undef,
+  $template = 'zabbix/zabbix_agent_userparam.conf.erb'
+) {
+
+  include zabbix::params
+
+  $key_real = $key ? {
+    undef   => $name,
+    default => $key
+  }
+
+  $index_real = $index ? {
+    undef => '',
+    default => "${index}_",
+  }
+
   $file_real = $file ? {
-    undef   => "${path}/${index}_${key}.conf",
-    default => $file
+    undef   => "${::zabbix::params::agent_include_path}/${index_real}${name}.conf",
+    default => $file,
   }
 
   file { $file_real:
     ensure  => $ensure,
-    content => template($template)
+    content => template($template),
+    notify  => Service[$zabbix::params::agent_service_name]
   }
+
 }

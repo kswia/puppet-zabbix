@@ -15,12 +15,7 @@
 #
 # * only really tested on some debian flavors
 #
-class zabbix::reports (
-  $ensure = $zabbix::params::reports_ensure,
-  $host   = $zabbix::params::reports_host,
-  $port   = $zabbix::params::reports_port,
-  $sender = $zabbix::params::reports_sender) inherits zabbix::params {
-  validate_re($ensure, [absent, present])
+class zabbix::reports {
 
   file { '/etc/puppet/zabbix.yaml':
     content => template('zabbix/zabbix.yaml.erb'),

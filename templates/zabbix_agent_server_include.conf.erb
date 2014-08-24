@@ -1,11 +1,2 @@
-# List of comma delimited IP addresses (or hostnames) of ZABBIX servers. 
-# No spaces allowed. First entry is used for sending active checks.
-# Note that hostnames must resolve hostname->IP address and
-# IP address->hostname.
-
-Server=<%= hostname %>
-ServerActive=<%= hostname %>
-
-# Server port for sending active checks
-
-#ServerPort=<% port %>
+Server=<%= ip %>
+ServerActive=<%= ip %>

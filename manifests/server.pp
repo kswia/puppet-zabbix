@@ -1,5 +1,7 @@
 # == Class: zabbix::server
 #
+# KAMIL
+#
 # Set up a Zabbix server
 #
 # === Parameters
@@ -25,127 +27,96 @@
 #  mysql server password
 #
 class zabbix::server (
-  $ensure      = $zabbix::params::server_ensure,
-  $hostname    = $zabbix::params::server_hostname,
-  $export      = $zabbix::params::export,
-  $conf_file   = $zabbix::params::server_conf_file,
-  $template    = $zabbix::params::server_template,
-  $node_id     = $zabbix::params::server_node_id,
-  $package     = $zabbix::params::server_package,
-  $db_type     = $zabbix::params::db_type,
-  $db_server   = $zabbix::params::db_server,
-  $db_database = $zabbix::params::db_database,
-  $db_user     = $zabbix::params::db_user,
-  $db_password = $zabbix::params::db_password) inherits zabbix::params {
+  $cluster_identifier  = 'default',
+  $configure_firewall  = true,
+  $node_id             = '0',
+  $db_type             = 'mysql',
+  $db_host             = 'localhost',
+  $db_name             = 'zabbix',
+  $db_user             = 'zabbix',
+  $db_password         = 'zabbix',
+  $frontend_servername = $::fqdn,
+  $api_debug           = 'false',
+  $server_ip           = $::ipaddress,
+  $server_listen_port  = '10051',
+) {
 
-  $install_package    = $::operatingsystem ? {
-    windows => false,
-    default => true,
+  include ::zabbix::params
+  include ::zabbix::repo
+
+  class { '::zabbix::frontend':
+    db_type     => $db_type,
+    db_name     => $db_name,
+    db_user     => $db_user,
+    db_password => $db_password,
+    servername  => $frontend_servername,
+    server_ip   => $server_ip,
   }
 
-  $lc_db_type = downcase($db_type)
-  $server_base_dir = "/usr/share/zabbix-server-${lc_db_type}"
-
-  if $package == '' {
-    $real_package = "zabbix-server-${lc_db_type}"
-  } else {
-    $real_package = $package
+  class { '::zabbix::api':
+    servername  => $frontend_servername,
+    debug       => $api_debug,
   }
 
-  if ($ensure == present) {
-    include activerecord
-
-    Class['activerecord'] -> File[$conf_file]
+  class { '::zabbix::db':
+    db_type     => $db_type,
+    db_name     => $db_name,
+    db_user     => $db_user,
+    db_password => $db_password,
   }
 
-  case $::operatingsystem {
-    'Gentoo' : {
-      class { 'zabbix::server::gentoo':
-        ensure => $ensure
-      }
+  if $configure_firewall {
+    firewall {'991 zabbix server':
+      port   => $zabbix::params::server_listen_port,
+      proto  => 'tcp',
+      action => 'accept',
     }
-    'Debian','Ubuntu' : {
-      include zabbix::debian
-    }
-    default  : {
-      # fail silently for now
-    }
+  }
+  
+  @@zabbix::serverconfig { $::fqdn:
+    ip  => $server_ip,
+    tag => "cluster-${cluster_identifier}"
   }
 
-  $service_ensure = $ensure ? {
-    absent  => stopped,
-    default => running,
-  }
-  $service_enable = $ensure ? {
-    absent  => false,
-    default => true,
+  package { 'zabbix-server':
+    ensure => latest,
+    name   => $zabbix::params::server_package,
   }
 
-  file { $conf_file:
-    ensure  => $ensure,
-    content => template($template),
-  }
-
-  mysql::db { $db_database :
-    user        => $db_user,
-    password    => $db_password,
-    host        => $db_server,
-    grant       => ['all'],
-    enforce_sql => [
-      '/usr/share/zabbix/database/mysql/schema.sql',
-      '/usr/share/zabbix/database/mysql/images.sql'
-    ]
+  file { 'zabbix_server.conf':
+    ensure  => present,
+    name    => $zabbix::params::server_conf_file,
+    content => template('zabbix/zabbix_server.conf.erb'),
+    notify  => Service['zabbix-server'],
+    require => Package['zabbix-server']
   }
 
   service { 'zabbix-server':
-    ensure  => $service_ensure,
-    enable  => $service_enable,
-    require => Mysql::Db[$db_database]
+    ensure  => running,
+    name    => $zabbix::params::server_service_name,
+    enable  => true,
+    require => [
+      File['zabbix_server.conf'],
+      Class['zabbix::db'],
+    ],
   }
 
-  File[$conf_file] ~> Service['zabbix-server']
+  zabbix_hostgroup { 'ManagedByPuppet': }
 
-  if $install_package != false {
-    package { $real_package:
-      ensure => $ensure,
-      notify => Exec['zabbix-server-schema']
-    }
-    Package[$real_package] -> File[$conf_file]
+  Zabbix_host {
+    require => Zabbix_hostgroup['ManagedByPuppet']
   }
 
-  if $db_type == 'MYSQL' {
-    $mysql_creds="--user=${db_user} --password=${db_password}"
-    $mysql_params="${mysql_creds} --host=${db_server}"
-    $mysql_command="mysql ${mysql_params} ${db_database}"
-
-    exec { 'zabbix-server-schema':
-      command     => "${mysql_command} < ${server_base_dir}/schema.sql",
-      refreshonly => true,
-      notify      => Exec['zabbix-server-images'],
-    }
-    exec { 'zabbix-server-images':
-      command     => "${mysql_command} < ${server_base_dir}/images.sql",
-      refreshonly => true,
-      notify      => Exec['zabbix-server-data'],
-    }
-    exec { 'zabbix-server-data':
-      command     => "${mysql_command} < ${server_base_dir}/data.sql",
-      refreshonly => true,
-    }
+  zabbix_host { 'Zabbix server':
+    ensure => absent
   }
 
-  if $export == present {
-    # export myself to all agents
-    @@zabbix::agent::server { $hostname:
-      ensure   => present,
-      hostname => $hostname,
-    }
-    # install templates needed by different nodes
-    Zabbix_template <<| |>>
-    Zabbix_template_application <<| |>>
-    Zabbix_template_item <<| |>>
-    Zabbix_trigger <<| |>>
-    Zabbix_hostgroup <<| |>>
-    Zabbix_host <<| |>>
-  }
+  File['zabbix_server.conf'] ~> Service['zabbix-server']
+
+  Class['zabbix::api'] ->
+  Zabbix_hostgroup['ManagedByPuppet'] ->
+  Zabbix_host <<| tag == "cluster-${cluster_identifier}" |>> ->
+  Zabbix_template_link <<| tag == "cluster-${cluster_identifier}" |>> ->
+  Zabbix_usermacro <<| tag == "cluster-${cluster_identifier}" |>>
+
 }
